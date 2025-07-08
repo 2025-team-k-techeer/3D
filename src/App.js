@@ -2,19 +2,18 @@ import "./App.css";
 import * as THREE from "three";
 import { ARButton } from "three/examples/jsm/webxr/ARButton";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
-import { XREstimatedLight } from "three/examples/jsm/webxr/XREstimatedLight";
-import eruda from 'eruda';
-eruda.init();
-// ... (기존 import 및 변수 선언 부분은 동일)
+import { XREstimatedLight } from "three/examples/jsm/webxr/XREstimatedLight";// AR 조명 환경 개선을 위함.
 
 function App() {
-  let reticle;
-  let hitTestSource = null;
-  let hitTestSourceRequested = false;
+  let reticle; // 평면 위치 표시용 링(가구 배치 위치) // visible true가 되면, 사용자가 가구를 배치할 수 있는 지점을 알 수 있음.
+  let hitTestSource = null; // 평면 인식에 사용하는 WebXR Hit Test source , AR session 에서 카메라 전면의 평면을 감지하고, 그 좌표를 가져오도록 도와줌.
+  let hitTestSourceRequested = false; // WebXr 입력 장치 (주로 탭, 선택등에 사용.) // hitTestSource를 요청했는지 여부를 알려주는 플래그 render() 함수 내에서 한번만 요청되도록 관리
 
-  let scene, camera, renderer;
+  let scene, camera, renderer; // AR 환경을 구축하기 위한 씬, 카메라 렌더러 객체
+  let controller; // WebXR 입력 장치, 모바일에서 클릭 입력 역할 담당. 해당 컨트롤러를 통해 selectstart, seletend 이벤트 감지.
 
-  let models = [
+  // 가구 모델 경로와 크기 배율
+  const models = [
     "./dylan_armchair_yolk_yellow.glb",
     "./ivan_armchair_mineral_blue.glb",
     "./marble_coffee_table.glb",
@@ -22,60 +21,73 @@ function App() {
     "./frame_armchairpetrol_velvet_with_gold_frame.glb",
     "./elnaz_nesting_side_tables_brass__green_marble.glb",
   ];
-  let modelScaleFactor = [0.01, 0.01, 0.005, 0.01, 0.01, 0.01];
-  let items = [];
-  let itemSelectedIndex = 0;
+  const modelScaleFactor = [0.01, 0.01, 0.005, 0.01, 0.01, 0.01];   // 모델별 스케일 설정
 
-  // --- 추가된 변수들 ---
-  let placedObjects = []; // 씬에 배치된 객체들을 저장하는 배열
-  let selectedObject = null; // 현재 선택된 객체
-  let selectionRing; // 선택 표시를 위한 초록색 링
-  let isDragging = false; // 회전을 위한 드래그 상태
-  let previousTouchX = 0; // 이전 터치 X좌표
+  const items = []; // 로드된 3D 모델들을 저장할 배열
+  const placedObjects = []; // 씬에 배치된 객체들
+
+  let itemSelectedIndex = 0; // 현재 선택된 가구 인덱스, UI에서 버튼을 클릭하면 이 값이 변경되어 다음 배치할 가구가 바뀜.
+
+  // --- 제스처 감지를 위한 변수들 --- 더블 탭, 롱 프레스를 구분하기 위한 시간 기준 값.
+  let lastTapTime = 0; // 이전 탭 시간(TimeStamp) 더블 탭 감지를 위해 현재 탭 과의 시간 차이 비교
+  let longPressTimeout; // 롱 프레스 감지를 위한 setTimeout 핸들러. selectstart 시 타이머를 설정하고, selectend 전에 취소하면 더블탭으로 처리
+  const DOUBLE_TAP_THRESHOLD = 300; // 더블 탭 최대 인식 시간
+  const LONG_PRESS_DURATION = 500; // 롱 프레스 최소 인식 시간.
+  const RING_SCALE_FACTOR = 0.3;
+
+  /* // --- 객체 선택 및 회전 관련 변수들 --- 선택 및 회전 처리와 시각적 선택 표시용 링 관리 */
+  let selectedObject = null; // 현재 선택된 가구 객체, 롱 프레스를 통해 선택. 회전이나 감지 표시 등에만 처리
+  let selectionRing = null; // 선택된 객체 아래에 표시되는 초록색 링 , 선택 강조 시 시각적으로 나타냄. 선택 해제 시 제거됨.
+  let isRotating = false; // 두 손가락으로 회전 중인지 여부
+  let initialTouchCenterX = 0; // 두 손가락 중심 x좌표, 이를 통해 회전 각도 계산
+  let initialObjectYRotation = 0; // 회전 시작 시 객체의 원래 Y축 회전값/ 회전량을 누적할 기준값이 됨.
+  const ROTATION_SENSITIVITY = 0.01; // 감도 조절 , 회전 감도 값.
   let raycaster; // 3D 공간에서 마우스나 컨트롤러 위치를 기반으로 객체를 탐지하거나 선택하는 데 사용
-  let lastTapTime = 0; // 더블 탭 판별용 (이제 onSelect에서만 사용)
-  let arrowHelper; // 🔁 전역에 선언
 
-  // 롱 프레스 및 단일 탭 감지용 변수
-  let longPressTimer = null;
-  const LONG_PRESS_DELAY = 500; // 롱 프레스로 간주할 시간 (밀리초)
-  const DRAG_THRESHOLD = 10; // 드래그로 간주할 최소 이동 거리 (픽셀, 약간 늘림)
-  let initialTouchX = 0; // 터치 시작 X 좌표
-  let initialTouchY = 0; // 터치 시작 Y 좌표
-
-  // ---
-
-  let controller;
+  let reticleDetectedFrames = 0; // 몇 프레임 연속으로 hit test가 성공했는지 누적하는 변수
+  const RETICLE_THRESHOLD = 300; // 10프레임 이상 감지되면 안정적으로 reticle 표시
 
   init();
   setupFurnitureSelection();
   animate();
 
   function init() {
-    let myCanvas = document.getElementById("canvas");
-    scene = new THREE.Scene();
+    const myCanvas = document.getElementById("canvas");
+    scene = new THREE.Scene(); // 씬 추가 // 3D 오브젝트가 추가되는 공간
+
     camera = new THREE.PerspectiveCamera(
       70,
       myCanvas.innerWidth / myCanvas.innerHeight,
       0.01,
       20
-    );
+    ); // 70도 시야각, 종횡비는 캔버스 비율, 거리 범위는 0.01~20 미터
 
-    const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-    light.position.set(0.5, 1, 0.25);
-    scene.add(light);
+    /* 조명 관련 코드 */
+    const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1); // 상단 하늘색 조명, 하단 보라색 그림자 조명
+    light.position.set(0.5, 1, 0.25); // 조명 설정.
+    scene.add(light); // 초기 기본 조명으로 설정됨 
 
+    /* 렌더러 설정. */ // 3D 장면(Scene)을 실제 화면(canvas)에 그려주는 역할
     renderer = new THREE.WebGLRenderer({
       canvas: myCanvas,
-      antialias: true,
-      alpha: true,
+      antialias: true, // 계단 현상 제거 / 각 객체를 스무스하게 보여주기 위한 설정.
+      alpha: true, // 배경 투명 처리 (AR 환경 위에 3D 모델 합성.)
     });
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(myCanvas.innerWidth, myCanvas.innerHeight);
-    renderer.xr.enabled = true;
-    
-//사용할 때 현실 세계의 조명 정보를 추정하여 가상 객체에 적용하기 위한 코드
+    renderer.setPixelRatio(window.devicePixelRatio); // 디바이스 해상도에 맞게 렌더링 품질 조정
+    renderer.setSize(myCanvas.innerWidth, myCanvas.innerHeight); // Canvas 사이즈에 맞게 조정.
+    renderer.xr.enabled = true; // WebXR 모드 활성화(AR 가능)
+
+    // --- 두 손가락 회전을 위한 터치 이벤트 리스너 추가 ---
+    /* 터치 이벤트 등록(두 손가락 회전) 터치 시작/이동/종료 시 객체 회전을 감지하기 위한 이벤트 리스너 */
+    renderer.domElement.addEventListener('touchstart', handleTouchStart, { passive: false }); 
+    /* touchstart 후 각도 변화를 계산하여 얼마나 회전시켜야 하는지 결정. */
+    renderer.domElement.addEventListener('touchmove', handleTouchMove, { passive: false });
+    /* 터치가 끝났을 때 호출 => 상태 초기화(이전 회전 각도, 터치 위치 초기화) */
+    renderer.domElement.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+    /* 조명 추정 기능 XREstimatedLight */ // light 변수와 별개로 AR 조명 추정이 가능하고 불가능한 상황을 모두 고려하기 위해 사용.
     const xrLight = new XREstimatedLight(renderer);
+    // 실제 환경 조명이 추정되면 기존 light 제거 후 AR right로 대체
     xrLight.addEventListener("estimationstart", () => {
       scene.add(xrLight);
       scene.remove(light);
@@ -83,7 +95,7 @@ function App() {
         scene.environment = xrLight.environment;
       }
     });
-
+    // 조명 추정이 중단되었을 때, 호출 기본 조명으로 다시 복원
     xrLight.addEventListener("estimationend", () => {
       scene.add(light);
       scene.remove(xrLight);
@@ -97,6 +109,8 @@ function App() {
     arButton.style.bottom = "20%";
     document.body.appendChild(arButton);
 
+
+    // 가구 모델 로딩
     for (let i = 0; i < models.length; i++) {
       const loader = new GLTFLoader();
       loader.load(models[i], function (glb) {
@@ -105,17 +119,15 @@ function App() {
       });
     }
     raycaster = new THREE.Raycaster(); // raycaster 앱 생성
-    // raycaster 시각화를 위해 수행.
-    arrowHelper = new THREE.ArrowHelper(raycaster.ray.direction, raycaster.ray.origin, 1, 0xff0000);
-    scene.add(arrowHelper);
 
 
+    // XR 컨트롤러 설정.
     controller = renderer.xr.getController(0);
-    // 🚨 중요: ARButton의 'select' 이벤트를 더블 탭 배치에만 사용하고,
-    // 롱 프레스 선택은 touch* 이벤트로 직접 처리할 것입니다.
-    controller.addEventListener("select", onSelect);
-    scene.add(controller);
-    // 바닥 생성
+    controller.addEventListener("selectstart", onSelectStart); // 선택 시작
+    controller.addEventListener("selectend", onSelectEnd); // 완료 처리
+    scene.add(controller); // 씬에 추가함으로써, 컨트롤러 위치나 방향 기반으로 Raycasting, 가구 배치, 조작이 가능해짐.
+    
+    // 가구 배치 위치 표시(reticle 생성)
     reticle = new THREE.Mesh(
       new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial()
@@ -125,241 +137,164 @@ function App() {
     reticle.visible = false;
     scene.add(reticle);
 
-    // --- 선택 링 생성 ---
-    selectionRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.3, 0.35, 32).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0x00ff00 }) // 초록색
-    );
-    selectionRing.visible = false;
-    scene.add(selectionRing);
-    // ---
-
-    // --- 드래그, 롱 프레스, 단일 탭을 위한 이벤트 리스너 ---
-    renderer.domElement.addEventListener("touchstart", onTouchStart, { passive: false });
-    renderer.domElement.addEventListener("touchmove", onTouchMove, { passive: false });
-    renderer.domElement.addEventListener("touchend", onTouchEnd, { passive: false });
-    renderer.domElement.addEventListener("touchcancel", onTouchEnd, { passive: false }); // 터치 취소 시에도 초기화
-    // ---
+    selectionRing =  new THREE.Mesh(
+      new THREE.TorusGeometry(0.5, 0.03, 16, 100).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+    )
+    selectionRing.visible = false; // 선택되었을 때만 true로 설정해서 강조 표시
+    // 링은 선택된 객체의 자식으로 추가될 것이므로, 아직 씬에 직접 추가하지 않음
   }
 
-  // onSelect 함수: 이제 오직 ARButton의 'select' 이벤트(더블 탭)에만 반응
-  function onSelect() {
-    const doubleTapDelay = 300;
-    const currentTime = new Date().getTime();
-    const timeDiff = currentTime - lastTapTime;
-    lastTapTime = currentTime;
+  // --- WebXR 컨트롤러 이벤트 핸들러 ---
+  // onSelectStart와 onSelectEnd에서 문제 생김. LongPressTimeout에서 논리적 문제 발생.
+  // 누르기 시작할 때 실행
+  function onSelectStart() {
+    if (isRotating) return; // 회전 중에는 선택 무시
+    longPressTimeout = setTimeout(() => {
+      handleLongPress(); // 일정 이상 누르면 길게 누르기 처리
+      longPressTimeout = null; // time 초기화
+    }, LONG_PRESS_DURATION);
+  }
+  // 누르기에서 손 땔 때 실행
+  function onSelectEnd() {
+    if (isRotating) return; // 회전 중에는 선택 무시
+    if (longPressTimeout) {
+      clearTimeout(longPressTimeout); // 롱 프레스 취소
+      handleTap(); // 짧은 탭이면 tap 처리
+    }
+  }
 
-    // 더블탭 감지: 시간 간격이 doubleTapDelay보다 짧으면 더블탭으로 처리
-    if (timeDiff < doubleTapDelay) {
-      // 🟢 더블탭: 새 가구 설치
-      if (reticle.visible) {
-        let newModel = items[itemSelectedIndex].clone();
-        newModel.visible = true;
-        reticle.matrix.decompose(
-          newModel.position,
-          newModel.quaternion,
-          newModel.scale
-        );
-        let scaleFactor = modelScaleFactor[itemSelectedIndex];
-        newModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
-        scene.add(newModel);
+  // --- 브라우저 터치 이벤트 핸들러 (두 손가락 회전용) ---
+  // 회전 시작 준비(초기 상태 저장) => 두 손가락이 화면에 닿을 때
+  function handleTouchStart(event) {
+    if (event.touches.length === 2 && selectedObject) {
+      event.preventDefault(); // 기본 터치 동작(브라우저 확대/ 스크롤 등)을 막음.
+      isRotating = true; // 지금 회전 중임을 명시
+      // 두 손가락 중심점 x좌표 계산
+      initialTouchCenterX = (event.touches[0].pageX + event.touches[1].pageX) / 2; 
+      initialObjectYRotation = selectedObject.rotation.y;
+    }
+  }
+  // 손가락 이동량을 기반으로 객체 회전 => 손가락이 움직일 때
+  // 손가락을 좌우로 움직이면 선택된 오브젝트가 y축(좌우)방향으로 회전하도록 만듦.
+  function handleTouchMove(event) {
+    if (isRotating && event.touches.length === 2 && selectedObject) {
+      event.preventDefault();
+      const currentCenterX = (event.touches[0].pageX + event.touches[1].pageX) / 2;
+      const deltaX = currentCenterX - initialTouchCenterX; //  중심 좌표가 처음 눌린 위치에서 얼마나 왼쪽/오른쪽으로 이동했는지
+      selectedObject.rotation.y = initialObjectYRotation + deltaX * ROTATION_SENSITIVITY;
+    }
+  }
+  // 손가락이 2개 미만으로 줄어들면 회전 종료 상태로 전환
+  function handleTouchEnd(event) {
+    if (event.touches.length < 2) {
+      isRotating = false;
+    }
+  }
 
-        placedObjects.push(newModel);
-        selectObject(newModel); // 새로 배치된 객체는 자동으로 선택
+  // 짧은 탭(더블 탭으로 가구 배치)
+  function handleTap() {
+    const currentTime = Date.now(); 
+    const timeSinceLastTap = currentTime - lastTapTime;
+    if (timeSinceLastTap < DOUBLE_TAP_THRESHOLD) {
+      if (reticle.visible) { // 바닥 감지가 되어 있으면
+        placeFurniture(); // 가구 배치
       }
     }
-    // 더 이상 싱글 탭 선택 로직은 여기에 없습니다.
+    lastTapTime = currentTime; // 다음 탭 과의 비교를 위해 이번 탭의 시각 저장.
   }
-  // 객체 선택 메소드
-  function selectObject(object) {
-    // `object`는 raycaster가 반환한 교차된 객체일 수 있습니다.
-    // 실제 우리가 '배치된 객체'로 관리하는 최상위 부모를 찾습니다.
-    let rootObject = object;
-    // placedObjects 배열에 rootObject가 포함될 때까지 부모를 찾아 올라갑니다.
-    // 이 루프는 glb.scene (Group/Scene)이 placedObjects에 저장되어 있다고 가정합니다.
-    while (rootObject.parent && !placedObjects.includes(rootObject)) {
-      rootObject = rootObject.parent;
-    }
-    // 최종적으로 찾아낸 rootObject가 실제 placedObjects에 있는 객체인지 확인합니다.
-    if (!placedObjects.includes(rootObject)) {
-      console.warn("선택하려는 객체가 placedObjects 배열에 없습니다.", rootObject);
-      return; // placedObjects에 없는 객체는 선택하지 않습니다.
-    }
 
-    if (selectedObject === rootObject) {
-      console.log("이미 선택된 객체입니다.");
-      return; // 이미 선택된 객체라면 아무것도 하지 않음
-    }
-    if (selectedObject) {
+  // 길게 누르기(객체 선택)
+  function handleLongPress() {
+    const raycaster = new THREE.Raycaster(); // 컨트롤러 방향으로 Ray 광선을 쏘고.
+    const pointingRay = new THREE.Vector3(0, 0, -1); // 컨트롤러 -z 방향
+    pointingRay.applyQuaternion(controller.quaternion); // 컨트롤러의 회전 방향을 반영해서 진짜 가리키는 방향 계산
+    raycaster.set(controller.position, pointingRay); // Ray의 시작점과 방향 설정
+
+    const intersects = raycaster.intersectObjects(placedObjects, true); // 충돌 감지 placeObjects: 씬에 배치된 가구, true를 통해 하위 객체까지 포함해서 충돌 검사
+
+    // 충돌한 감지가 있을 경우
+    if (intersects.length > 0) {
+      // GLTH 내부 mesh가 아닌 최상위 부모 객체 찾아냄.
+      const intersectedObject = findTopLevelObject(intersects[0].object);
+      if (intersectedObject) {
+        if (intersectedObject === selectedObject) {
+        // ✅ 선택된 상태에서 다시 길게 누르면 → 삭제
+          scene.remove(intersectedObject);
+          const index = placedObjects.indexOf(intersectedObject); // 내부 관리 배열에서 객체 위치 찾기
+          if (index !== -1){placedObjects.splice(index, 1);}  // 추적 배열에서도 해당 객체 제거
+          deselectObject(); // 이미 선택된 객체를 다시 길게 누르면 선택 해제
+        } else {
+          selectObject(intersectedObject);
+        }
+      }
+    } else {
+      // 빈 공간을 누르면 선택 해제
       deselectObject();
     }
-    selectedObject = rootObject;
-    selectionRing.visible = true;
-    selectionRing.position.copy(selectedObject.position);
-    selectionRing.quaternion.copy(selectedObject.quaternion);
-    console.log("객체 선택 성공:", selectedObject);
+  }
+  
+  function placeFurniture() {
+    const newModel = items[itemSelectedIndex].clone(); // 선택된 모델 복제
+    newModel.visible = true; 
+     // reticle 위치를 기준으로 위치/회전/스케일 설정
+    reticle.matrix.decompose(newModel.position, newModel.quaternion, newModel.scale);
+    // 해당 모델에 맞는 크기 적용
+    const scale = modelScaleFactor[itemSelectedIndex];
+    newModel.scale.set(scale, scale, scale);
+    scene.add(newModel);
+    placedObjects.push(newModel);
+    // ✅ 배치하자마자 바로 선택 상태로!
+    selectObject(newModel);
   }
 
+  function selectObject(object) {
+    deselectObject(); // 이전에 선택된 객체가 있다면 먼저 해제
+    selectedObject = object;
+    selectedObject.add(selectionRing);
 
+    // 객체 크기 측정
+    const box = new THREE.Box3().setFromObject(selectedObject); // 선택된 객체를 감싸는 바운딩 박스 생성
+    const size = box.getSize(new THREE.Vector3()); // 가로(x), 세로(y), 깊이(z)의 실제 크기를 계산
+    // 링 위치 설정
+    selectionRing.position.set(0, -size.y / 2, 0); // 링을 객체 바닥 중앙에 위치시키기 위해 y축 아래쪽으로 이동
+    selectionRing.scale.set(1, 1, 1); // 이전 객체에서의 스케일을 남기지 않기 위해 초기화
+    /* 링 크기 조절 (객체 크기에 맞게) 해당 부분에서 문제 예상 */
+    const maxDim = Math.max(size.x, size.z) / selectedObject.scale.x; // 부모 스케일 역보정
+    selectionRing.scale.set(maxDim * RING_SCALE_FACTOR, maxDim *RING_SCALE_FACTOR, maxDim * RING_SCALE_FACTOR);
+    selectionRing.visible = true;
+  }
+  /* Object 삭제 */
   function deselectObject() {
+    if (selectedObject) {
+      // 링을 부모 객체에서 제거
+      selectedObject.remove(selectionRing);
+    }
     selectedObject = null;
     selectionRing.visible = false;
   }
-  // ---
-  function findRootPlacedObject(obj) {
-    while (obj.parent) {
-      if (placedObjects.includes(obj)) return obj;
-      obj = obj.parent;
+  /* Raycaster로 얻은 Mesh 단위 객체에서부터 시작해, 최상위 가구 선택 메서드 */
+  function findTopLevelObject(object) {
+    let parent = object;
+    while (parent.parent && parent.parent !== scene) {
+      parent = parent.parent;
     }
-    return null;
+    return placedObjects.includes(parent) ? parent : null;
   }
-  // --- 수정된 onTouchStart 함수 (가장 중요) ---
-  function onTouchStart(event) {
-    if (event.target === renderer.domElement) {
-      initialTouchX = event.touches[0].clientX;
-      initialTouchY = event.touches[0].clientY;
-
-      // ☝️ 단일 손가락 터치인 경우 (롱 프레스 감지)
-      if (event.touches.length === 1) {
-        // 롱 프레스 타이머 시작
-        longPressTimer = setTimeout(() => {
-          console.log("롱 프레스 감지! 객체 선택 시도.");
-          event.preventDefault();
-
-          const clientX = event.touches[0].clientX;
-          const clientY = event.touches[0].clientY;
-
-          const rect = renderer.domElement.getBoundingClientRect();
-          const x = ((clientX - rect.left) / rect.width) * 2 - 1;
-          const y = -((clientY - rect.top) / rect.height) * 2 + 1;
-
-          raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
-          // 롱 프레스 시 빨간색 화살표가 어디로 향하는 지 확인 가능
-          arrowHelper.setDirection(raycaster.ray.direction);
-          arrowHelper.position.copy(raycaster.ray.origin);
-
-          const intersects = raycaster.intersectObjects(placedObjects, true);
-
-          console.log("");
-          
-          if (intersects.length > 0) {
-            // 교차된 객체에서 실제 배치된 부모 객체 찾기 (parent가 null이 될 때까지 올라감)
-            const intersectedObject = intersects[0].object;
-            const root = findRootPlacedObject(intersectedObject);
-
-            if (root) {
-              selectObject(root);
-            } else {
-              console.warn("선택된 객체가 placedObjects 안에 없음:", intersectedObject);
-            }
-          } 
-          else {
-            // 빈 공간 롱프레스 시, 현재 선택된 오브젝트가 있고
-            // 롱프레스 위치가 선택된 오브젝트의 화면 투영 위치와 충분히 가까우면 선택 해제하지 않음
-            if (selectedObject) {
-              // 선택된 오브젝트의 화면 투영 위치 계산
-              const screenPos = selectedObject.position.clone().project(camera);
-              const sx = ((screenPos.x + 1) / 2) * rect.width + rect.left;
-              const sy = ((-screenPos.y + 1) / 2) * rect.height + rect.top;
-              const dist = Math.sqrt((clientX - sx) ** 2 + (clientY - sy) ** 2);
-              if (dist < 60) {
-                // 선택 유지 (아무 동작 안 함)
-                console.log("선택된 오브젝트 위 롱프레스, 선택 유지");
-              } else {
-                deselectObject();
-                console.log("빈 공간 롱프레스, 선택 해제됨");
-              }
-            } else {
-              deselectObject();
-              console.log("빈 공간 롱프레스, 선택 해제됨");
-            }
-          }
-          longPressTimer = null;
-        }, LONG_PRESS_DELAY);
-
-      // ✌️ 두 손가락 터치인 경우 (회전 의도)
-      } else if (event.touches.length === 2) {
-        event.preventDefault();
-        
-        if (longPressTimer) {
-          clearTimeout(longPressTimer);
-          longPressTimer = null;
-        }
-
-        // 이미 선택된 객체가 있다면 회전 준비
-        if (selectedObject) {
-          isDragging = true;
-          previousTouchX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
-        }
-      }
-    }
-  }
-
-  // --- 수정된 onTouchMove 함수 ---
-  function onTouchMove(event) {
-    // 롱 프레스 타이머가 실행 중이고, 터치가 움직였다면 타이머 취소
-    if (longPressTimer && event.touches.length === 1) {
-      const currentTouchX = event.touches[0].clientX;
-      const currentTouchY = event.touches[0].clientY;
-      const deltaX = Math.abs(currentTouchX - initialTouchX);
-      const deltaY = Math.abs(currentTouchY - initialTouchY);
-
-      if (deltaX > DRAG_THRESHOLD || deltaY > DRAG_THRESHOLD) {
-        // 드래그 임계값을 넘었으면 롱 프레스 취소 및 preventDefault
-        clearTimeout(longPressTimer);
-        longPressTimer = null;
-        console.log("터치 이동 감지, 롱 프레스 취소.");
-        event.preventDefault(); // ✨ 드래그로 전환될 때 호출 (중요)
-      }
-    }
-
-    // 드래그 중이고, 선택된 객체가 있으며, 두 손가락 터치 상태인 경우에만 회전
-    if (isDragging && selectedObject && event.touches && event.touches.length === 2) {
-      event.preventDefault(); // ✨ 회전 드래그 중에는 항상 호출 (중요)
-      const currentTouchX = (event.touches[0].clientX + event.touches[1].clientX) / 2;
-      const deltaX = currentTouchX - previousTouchX;
-      selectedObject.rotation.y += deltaX * 0.01;
-      previousTouchX = currentTouchX;
-    } else if (isDragging && (!event.touches || event.touches.length !== 2)) {
-      // 드래그 중인데 손가락 개수가 바뀌면 드래그 종료
-      isDragging = false;
-    }
-  }
-
-  // --- 수정된 onTouchEnd 함수 ---
-  function onTouchEnd(event) {
-    // 롱 프레스 타이머가 아직 실행 중이었다면 (롱 프레스 아님, 즉 짧은 탭)
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
-      
-      // ✨ 롱 프레스가 아닌 "짧은 탭"인 경우에만
-      // 여기서는 아무것도 하지 않습니다. ARButton의 onSelect (더블 탭)만 남겨두었기 때문입니다.
-      // 만약 싱글 탭으로 뭔가 하고 싶다면 여기에 로직을 추가해야 합니다.
-    }
-
-    // 드래그 상태 초기화
-    if (isDragging) {
-      isDragging = false;
-    }
-    // 객체 선택 상태는 명시적인 롱 프레스나 다른 탭 전까지 유지됩니다.
-    // console.log("터치 종료");
-  }
-
-  const onClicked = (e, selectItem, index) => {
-    itemSelectedIndex = index;
-    deselectObject(); // 다른 가구를 선택하면 기존 선택 해제
-
-    for (let i = 0; i < models.length; i++) {
-      const el = document.querySelector(`#item` + i);
-      el.classList.remove("clicked");
-    }
+  /* 사용자가 가구 선택 버튼(UI)를 클릭했을 때 처리 */
+  // selectItem은 전혀 필요치 않음. 왜 넣었는지 확인해보자.
+  function onClicked(e, selectItem, index) {
+    itemSelectedIndex = index; 
+    deselectObject();
+    document.querySelectorAll('.item-button').forEach(el => el.classList.remove('clicked'));
     e.target.classList.add("clicked");
-  };
-
+  }
+  /* 가구 버튼을 찾아 클릭 이벤트 바인딩 */
+  // 해당 과정도 꼭 필요한 과정인지 찾아보자. 기존 코드 참고
   function setupFurnitureSelection() {
     for (let i = 0; i < models.length; i++) {
       const el = document.querySelector(`#item` + i);
+      el.classList.add('item-button');
       el.addEventListener("beforexrselect", (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -371,60 +306,67 @@ function App() {
       });
     }
   }
-
+  // 랜더링
   function animate() {
     renderer.setAnimationLoop(render);
   }
-
+ // AR 세션 동안 매 프레임마다 호출되는 핵심 루프, reticle 위치 업데이트와 화면 렌더링 수행
   function render(timestamp, frame) {
     if (frame) {
-      const referenceSpace = renderer.xr.getReferenceSpace();
-      const session = renderer.xr.getSession();
-
+      const referenceSpace = renderer.xr.getReferenceSpace(); // 기준 좌표계 역할 수행
+      const session = renderer.xr.getSession(); // 현재 WebXR 세션 객체
+      /* HitTestSource 요청(최초 1회) */
       if (hitTestSourceRequested === false) {
-        session.requestReferenceSpace("viewer").then(function (referenceSpace) {
-          session
-            .requestHitTestSource({ space: referenceSpace })
-            .then(function (source) {
-              hitTestSource = source;
-            });
+        session.requestReferenceSpace("viewer").then(function (refSpace) {
+          session.requestHitTestSource({ space: refSpace }).then(function (source) {
+            hitTestSource = source;
+          });
         });
-
         session.addEventListener("end", function () {
           hitTestSourceRequested = false;
           hitTestSource = null;
+          deselectObject();
         });
-
         hitTestSourceRequested = true;
       }
 
       if (hitTestSource) {
         const hitTestResults = frame.getHitTestResults(hitTestSource);
-
-        if (hitTestResults.length) {
+        if (hitTestResults.length > 0) {
           const hit = hitTestResults[0];
-
           reticle.visible = true;
-          reticle.matrix.fromArray(
-            hit.getPose(referenceSpace).transform.matrix
-          );
+          reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+
+          // ✅ 연속 감지 카운트 증가
+          reticleDetectedFrames++;
+
         } else {
+          // // ✅ 인식 실패 → 카운트 리셋 및 숨김 처리
+          // reticleDetectedFrames = 0; 해당 방식으로 했을 경우, 계속해서 초기화되어 인식 처리 메시지가 사라지지 않는 문제 발생
           reticle.visible = false;
         }
       }
     }
+    const arStatusEl = document.getElementById("ar-status");
 
-    // --- 렌더 루프에서 선택 링 위치 및 회전 업데이트 ---
-    if (selectedObject) {
-      selectionRing.position.copy(selectedObject.position);
-      selectionRing.quaternion.copy(selectedObject.quaternion);
+    // JS에서 클래스 토글 방식으로
+    if (reticleDetectedFrames >= RETICLE_THRESHOLD && reticle.visible) {
+      arStatusEl.classList.remove("turnOn");
+      console.log(arStatusEl.classList.contains("turnOn")); // → false면 잘 제거됨
+    } else {
+      arStatusEl.classList.add("turnOn");
+      console.log(arStatusEl.classList.contains("turnOn")); // → false면 잘 제거됨
+
     }
-    // ---
 
     renderer.render(scene, camera);
   }
 
-  return <div className="App"></div>;
+  return <div className="App">
+  <div id="ar-status" className="ar-status">
+  바닥을 인식 중입니다...
+</div>
+</div>;
 }
 
 export default App;
