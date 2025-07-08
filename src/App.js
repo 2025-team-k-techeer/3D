@@ -3,7 +3,8 @@ import * as THREE from "three";
 import { ARButton } from "three/examples/jsm/webxr/ARButton";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 import { XREstimatedLight } from "three/examples/jsm/webxr/XREstimatedLight";
-
+import eruda from 'eruda';
+eruda.init();
 // ... (기존 import 및 변수 선언 부분은 동일)
 
 function App() {
@@ -31,7 +32,7 @@ function App() {
   let selectionRing; // 선택 표시를 위한 초록색 링
   let isDragging = false; // 회전을 위한 드래그 상태
   let previousTouchX = 0; // 이전 터치 X좌표
-  const raycaster = new THREE.Raycaster(); // 객체 선택을 위한 Raycaster
+  let raycaster; // 3D 공간에서 마우스나 컨트롤러 위치를 기반으로 객체를 탐지하거나 선택하는 데 사용
   let lastTapTime = 0; // 더블 탭 판별용 (이제 onSelect에서만 사용)
   
   // 롱 프레스 및 단일 탭 감지용 변수
@@ -102,17 +103,19 @@ function App() {
         items[i] = model;
       });
     }
+    raycaster = new THREE.Raycaster(); // raycaster 앱 생성
 
     controller = renderer.xr.getController(0);
     // 🚨 중요: ARButton의 'select' 이벤트를 더블 탭 배치에만 사용하고,
     // 롱 프레스 선택은 touch* 이벤트로 직접 처리할 것입니다.
     controller.addEventListener("select", onSelect);
     scene.add(controller);
-
+    // 바닥 생성
     reticle = new THREE.Mesh(
       new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial()
     );
+
     reticle.matrixAutoUpdate = false;
     reticle.visible = false;
     scene.add(reticle);
@@ -162,16 +165,24 @@ function App() {
     }
     // 더 이상 싱글 탭 선택 로직은 여기에 없습니다.
   }
-
-  // --- 객체 선택/해제 함수 ---
+  // 객체 선택 메소드
   function selectObject(object) {
-    // 부모 객체가 placedObjects에 포함되어 있는지 보장
+    // `object`는 raycaster가 반환한 교차된 객체일 수 있습니다.
+    // 실제 우리가 '배치된 객체'로 관리하는 최상위 부모를 찾습니다.
     let rootObject = object;
+    // placedObjects 배열에 rootObject가 포함될 때까지 부모를 찾아 올라갑니다.
+    // 이 루프는 glb.scene (Group/Scene)이 placedObjects에 저장되어 있다고 가정합니다.
     while (rootObject.parent && !placedObjects.includes(rootObject)) {
       rootObject = rootObject.parent;
     }
-    if (!placedObjects.includes(rootObject)) return;
+    // 최종적으로 찾아낸 rootObject가 실제 placedObjects에 있는 객체인지 확인합니다.
+    if (!placedObjects.includes(rootObject)) {
+      console.warn("선택하려는 객체가 placedObjects 배열에 없습니다.", rootObject);
+      return; // placedObjects에 없는 객체는 선택하지 않습니다.
+    }
+
     if (selectedObject === rootObject) {
+      console.log("이미 선택된 객체입니다.");
       return; // 이미 선택된 객체라면 아무것도 하지 않음
     }
     if (selectedObject) {
@@ -181,7 +192,9 @@ function App() {
     selectionRing.visible = true;
     selectionRing.position.copy(selectedObject.position);
     selectionRing.quaternion.copy(selectedObject.quaternion);
+    console.log("객체 선택 성공:", selectedObject);
   }
+
 
   function deselectObject() {
     selectedObject = null;
@@ -208,7 +221,6 @@ function App() {
           const rect = renderer.domElement.getBoundingClientRect();
           const x = ((clientX - rect.left) / rect.width) * 2 - 1;
           const y = -((clientY - rect.top) / rect.height) * 2 + 1;
-
           raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
           const intersects = raycaster.intersectObjects(placedObjects, true);
 
