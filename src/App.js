@@ -34,7 +34,8 @@ function App() {
   let previousTouchX = 0; // 이전 터치 X좌표
   let raycaster; // 3D 공간에서 마우스나 컨트롤러 위치를 기반으로 객체를 탐지하거나 선택하는 데 사용
   let lastTapTime = 0; // 더블 탭 판별용 (이제 onSelect에서만 사용)
-  
+  let arrowHelper; // 🔁 전역에 선언
+
   // 롱 프레스 및 단일 탭 감지용 변수
   let longPressTimer = null;
   const LONG_PRESS_DELAY = 500; // 롱 프레스로 간주할 시간 (밀리초)
@@ -104,6 +105,10 @@ function App() {
       });
     }
     raycaster = new THREE.Raycaster(); // raycaster 앱 생성
+    // raycaster 시각화를 위해 수행.
+    arrowHelper = new THREE.ArrowHelper(raycaster.ray.direction, raycaster.ray.origin, 1, 0xff0000);
+    scene.add(arrowHelper);
+
 
     controller = renderer.xr.getController(0);
     // 🚨 중요: ARButton의 'select' 이벤트를 더블 탭 배치에만 사용하고,
@@ -132,7 +137,6 @@ function App() {
     // --- 드래그, 롱 프레스, 단일 탭을 위한 이벤트 리스너 ---
     renderer.domElement.addEventListener("touchstart", onTouchStart, { passive: false });
     renderer.domElement.addEventListener("touchmove", onTouchMove, { passive: false });
-    renderer.domElement.addEventListener("touchend", onTouchEnd, { passive: false });
     renderer.domElement.addEventListener("touchcancel", onTouchEnd, { passive: false }); // 터치 취소 시에도 초기화
     // ---
   }
@@ -222,6 +226,10 @@ function App() {
           const x = ((clientX - rect.left) / rect.width) * 2 - 1;
           const y = -((clientY - rect.top) / rect.height) * 2 + 1;
           raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+          // 롱 프레스 시 빨간색 화살표가 어디로 향하는 지 확인 가능
+          arrowHelper.setDirection(raycaster.ray.direction);
+          arrowHelper.position.copy(raycaster.ray.origin);
+
           const intersects = raycaster.intersectObjects(placedObjects, true);
 
           if (intersects.length > 0) {
