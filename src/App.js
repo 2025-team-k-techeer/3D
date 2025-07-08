@@ -206,7 +206,13 @@ function App() {
     selectionRing.visible = false;
   }
   // ---
-
+  function findRootPlacedObject(obj) {
+    while (obj.parent) {
+      if (placedObjects.includes(obj)) return obj;
+      obj = obj.parent;
+    }
+    return null;
+  }
   // --- 수정된 onTouchStart 함수 (가장 중요) ---
   function onTouchStart(event) {
     if (event.target === renderer.domElement) {
@@ -226,6 +232,7 @@ function App() {
           const rect = renderer.domElement.getBoundingClientRect();
           const x = ((clientX - rect.left) / rect.width) * 2 - 1;
           const y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
           raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
           // 롱 프레스 시 빨간색 화살표가 어디로 향하는 지 확인 가능
           arrowHelper.setDirection(raycaster.ray.direction);
@@ -233,22 +240,20 @@ function App() {
 
           const intersects = raycaster.intersectObjects(placedObjects, true);
 
+          console.log("");
+          
           if (intersects.length > 0) {
             // 교차된 객체에서 실제 배치된 부모 객체 찾기 (parent가 null이 될 때까지 올라감)
-            let intersectedObject = intersects[0].object;
-            let foundPlaced = null;
-            while (intersectedObject) {
-              if (placedObjects.includes(intersectedObject)) {
-                foundPlaced = intersectedObject;
-                break;
-              }
-              intersectedObject = intersectedObject.parent;
+            const intersectedObject = intersects[0].object;
+            const root = findRootPlacedObject(intersectedObject);
+
+            if (root) {
+              selectObject(root);
+            } else {
+              console.warn("선택된 객체가 placedObjects 안에 없음:", intersectedObject);
             }
-            if (foundPlaced) {
-              selectObject(foundPlaced);
-              console.log("객체 선택됨:", foundPlaced);
-            }
-          } else {
+          } 
+          else {
             // 빈 공간 롱프레스 시, 현재 선택된 오브젝트가 있고
             // 롱프레스 위치가 선택된 오브젝트의 화면 투영 위치와 충분히 가까우면 선택 해제하지 않음
             if (selectedObject) {
