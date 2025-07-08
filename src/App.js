@@ -137,6 +137,7 @@ function App() {
     // --- 드래그, 롱 프레스, 단일 탭을 위한 이벤트 리스너 ---
     renderer.domElement.addEventListener("touchstart", onTouchStart, { passive: false });
     renderer.domElement.addEventListener("touchmove", onTouchMove, { passive: false });
+    renderer.domElement.addEventListener("touchend", onTouchEnd, { passive: false });
     renderer.domElement.addEventListener("touchcancel", onTouchEnd, { passive: false }); // 터치 취소 시에도 초기화
     // ---
   }
