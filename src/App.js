@@ -296,16 +296,16 @@ function App() {
     const scale = selectedObject.scale;
 
     const trueSize = new THREE.Vector3(
-      size.x / scale.x,
-      size.y / scale.y,
-      size.z / scale.z
+    Math.abs(size.x / scale.x),
+    Math.abs(size.y / scale.y),
+    Math.abs(size.z / scale.z)
     );
 
-        // 기준 위치: 바닥면 좌측 앞쪽 모서리
+    // 기준 위치: 바닥면 좌측 앞쪽 모서리
     const base = new THREE.Vector3(
-      -trueSize.x / 2,
-      -trueSize.y / 2,
-      trueSize.z / 2
+      -trueSize.x / 5,
+      -trueSize.y / 5,
+      trueSize.z / 5
     );
 
     // 각 축별로 굵은 라인 생성
