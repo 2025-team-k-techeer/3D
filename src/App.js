@@ -286,13 +286,13 @@ function App() {
 
     const zLineGeometry = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, trueSize.z / 4),
-      new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, -trueSize.z /43),
+      new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, -trueSize.z /4),
     ]);
     const zLine = new THREE.Line(zLineGeometry, lineMaterial);
 
     const yLineGeometry = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, -trueSize.z / 4),
-      new THREE.Vector3(trueSize.x / 4, trueSize.y / 4 -trueSize.z / 4),
+      new THREE.Vector3(trueSize.x / 4, trueSize.y / 4, -trueSize.z / 4),
     ]);
     const yLine = new THREE.Line(yLineGeometry, lineMaterial);
 
@@ -313,7 +313,7 @@ function App() {
       // 링을 부모 객체에서 제거
       selectedObject.remove(selectionRing);
       if (lineGroup) {
-        selectObject.remove(lineGroup);
+        selectedObject.remove(lineGroup);
         lineGroup = null;
       }
     }
