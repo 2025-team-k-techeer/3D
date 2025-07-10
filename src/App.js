@@ -266,9 +266,32 @@ function App() {
 
     makeSizeLine(size) // 객체가 가지고 있는 실제 가구의 크기를 가져올 필요성 있음.
   }
+
+  // 선을 Cylinder로 생성
+  function createThickLine(start, end, radius = 0.8, color = 0xff0000) {
+    const direction = new THREE.Vector3().subVectors(end, start);
+    const length = direction.length();
+
+    const material = new THREE.MeshBasicMaterial({ color });
+    const geometry = new THREE.CylinderGeometry(radius, radius, length, 16);
+
+    const cylinder = new THREE.Mesh(geometry, material);
+
+    // 위치 및 방향 설정
+    const midPoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+    cylinder.position.copy(midPoint);
+
+    // 방향 회전 처리
+    const axis = new THREE.Vector3(0, 1, 0); // cylinder 기본 방향
+    cylinder.quaternion.setFromUnitVectors(axis, direction.clone().normalize());
+
+    return cylinder;
+  }
+
+
+
   // 크기 조절 필요.
   function makeSizeLine(size){
-    const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
 
     const scale = selectedObject.scale;
 
@@ -278,23 +301,29 @@ function App() {
       size.z / scale.z
     );
 
-    const xLineGeometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(-trueSize.x / 4, -trueSize.y / 4, trueSize.z / 4),
-      new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, trueSize.z / 4),
-    ]);
-    const xLine = new THREE.Line(xLineGeometry, lineMaterial);
+        // 기준 위치: 바닥면 좌측 앞쪽 모서리
+    const base = new THREE.Vector3(
+      -trueSize.x / 2,
+      -trueSize.y / 2,
+      trueSize.z / 2
+    );
 
-    const zLineGeometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, trueSize.z / 4),
-      new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, -trueSize.z /4),
-    ]);
-    const zLine = new THREE.Line(zLineGeometry, lineMaterial);
+    // 각 축별로 굵은 라인 생성
+    const xLine = createThickLine(
+      base,
+      base.clone().add(new THREE.Vector3(trueSize.x, 0, 0))
+    );
 
-    const yLineGeometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, -trueSize.z / 4),
-      new THREE.Vector3(trueSize.x / 4, trueSize.y / 4, -trueSize.z / 4),
-    ]);
-    const yLine = new THREE.Line(yLineGeometry, lineMaterial);
+    const zLine = createThickLine(
+      base.clone().add(new THREE.Vector3(trueSize.x, 0, 0)),
+      base.clone().add(new THREE.Vector3(trueSize.x, 0, -trueSize.z))
+    );
+
+    const yLine = createThickLine(
+      base.clone().add(new THREE.Vector3(trueSize.x, 0, -trueSize.z)),
+      base.clone().add(new THREE.Vector3(trueSize.x, trueSize.y, -trueSize.z))
+    );
+
 
     // 기존 라인 제거
     if (lineGroup) {
