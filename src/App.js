@@ -42,11 +42,12 @@ function App() {
   let initialTouchCenterX = 0; // 두 손가락 중심 x좌표, 이를 통해 회전 각도 계산
   let initialObjectYRotation = 0; // 회전 시작 시 객체의 원래 Y축 회전값/ 회전량을 누적할 기준값이 됨.
   const ROTATION_SENSITIVITY = 0.01; // 감도 조절 , 회전 감도 값.
-  let raycaster; // 3D 공간에서 마우스나 컨트롤러 위치를 기반으로 객체를 탐지하거나 선택하는 데 사용
 
   let reticleDetectedFrames = 0; // 몇 프레임 연속으로 hit test가 성공했는지 누적하는 변수
   const RETICLE_THRESHOLD = 300; // 10프레임 이상 감지되면 안정적으로 reticle 표시
 
+  /* 객체 크기 라인 기능 관련 변수 */
+  let lineGroup = null; // 라인 그룹을 전역에서 관리 (선택 해제 시 제거)
   init();
   setupFurnitureSelection();
   animate();
@@ -118,7 +119,6 @@ function App() {
         items[i] = model;
       });
     }
-    raycaster = new THREE.Raycaster(); // raycaster 앱 생성
 
 
     // XR 컨트롤러 설정.
@@ -263,15 +263,63 @@ function App() {
     const maxDim = Math.max(size.x, size.z) / selectedObject.scale.x; // 부모 스케일 역보정
     selectionRing.scale.set(maxDim * RING_SCALE_FACTOR, maxDim *RING_SCALE_FACTOR, maxDim * RING_SCALE_FACTOR);
     selectionRing.visible = true;
+
+    makeSizeLine(size) // 객체가 가지고 있는 실제 가구의 크기를 가져올 필요성 있음.
   }
+  // 크기 조절 필요.
+  function makeSizeLine(size){
+    const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
+
+    const scale = selectedObject.scale;
+
+    const trueSize = new THREE.Vector3(
+      size.x / scale.x,
+      size.y / scale.y,
+      size.z / scale.z
+    );
+
+    const xLineGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-trueSize.x / 4, -trueSize.y / 4, trueSize.z / 4),
+      new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, trueSize.z / 4),
+    ]);
+    const xLine = new THREE.Line(xLineGeometry, lineMaterial);
+
+    const zLineGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, trueSize.z / 4),
+      new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, -trueSize.z /43),
+    ]);
+    const zLine = new THREE.Line(zLineGeometry, lineMaterial);
+
+    const yLineGeometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(trueSize.x / 4, -trueSize.y / 4, -trueSize.z / 4),
+      new THREE.Vector3(trueSize.x / 4, trueSize.y / 4 -trueSize.z / 4),
+    ]);
+    const yLine = new THREE.Line(yLineGeometry, lineMaterial);
+
+    // 기존 라인 제거
+    if (lineGroup) {
+      selectedObject.remove(lineGroup);
+      lineGroup = null;
+    }
+
+    lineGroup = new THREE.Group();
+    lineGroup.add(xLine, zLine, yLine);
+    selectedObject.add(lineGroup);
+  }
+
   /* Object 삭제 */
   function deselectObject() {
     if (selectedObject) {
       // 링을 부모 객체에서 제거
       selectedObject.remove(selectionRing);
+      if (lineGroup) {
+        selectObject.remove(lineGroup);
+        lineGroup = null;
+      }
     }
     selectedObject = null;
     selectionRing.visible = false;
+
   }
   /* Raycaster로 얻은 Mesh 단위 객체에서부터 시작해, 최상위 가구 선택 메서드 */
   function findTopLevelObject(object) {
@@ -352,10 +400,10 @@ function App() {
     // JS에서 클래스 토글 방식으로
     if (reticleDetectedFrames >= RETICLE_THRESHOLD && reticle.visible) {
       arStatusEl.classList.remove("turnOn");
-      console.log(arStatusEl.classList.contains("turnOn")); // → false면 잘 제거됨
+      // console.log(arStatusEl.classList.contains("turnOn")); // → false면 잘 제거됨
     } else {
       arStatusEl.classList.add("turnOn");
-      console.log(arStatusEl.classList.contains("turnOn")); // → false면 잘 제거됨
+      // console.log(arStatusEl.classList.contains("turnOn")); // → false면 잘 제거됨
 
     }
 
