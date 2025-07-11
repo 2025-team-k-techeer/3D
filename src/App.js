@@ -44,7 +44,7 @@ function App() {
   let reticleDetectedFrames = 0;
   const RETICLE_THRESHOLD = 300;
 
-  let lineGroup = null;
+  //let lineGroup = null;
   
   // 크기 정보 카드 관련 변수들
   let sizeInfoCard = null;
@@ -322,68 +322,68 @@ function App() {
     selectionRing.scale.set(maxDim * RING_SCALE_FACTOR, maxDim * RING_SCALE_FACTOR, maxDim * RING_SCALE_FACTOR);
     selectionRing.visible = true;
 
-    makeSizeLine(size);
+    //makeSizeLine(size);
   }
 
-  function createThickLine(start, end, radius = 0.8, color = 0xff0000) {
-    const direction = new THREE.Vector3().subVectors(end, start);
-    const length = direction.length();
+  // function createThickLine(start, end, radius = 0.8, color = 0xff0000) {
+  //   const direction = new THREE.Vector3().subVectors(end, start);
+  //   const length = direction.length();
 
-    const material = new THREE.MeshBasicMaterial({ color });
-    const geometry = new THREE.CylinderGeometry(radius, radius, length, 16);
+  //   const material = new THREE.MeshBasicMaterial({ color });
+  //   const geometry = new THREE.CylinderGeometry(radius, radius, length, 16);
 
-    const cylinder = new THREE.Mesh(geometry, material);
+  //   const cylinder = new THREE.Mesh(geometry, material);
 
-    const midPoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-    cylinder.position.copy(midPoint);
+  //   const midPoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+  //   cylinder.position.copy(midPoint);
 
-    const axis = new THREE.Vector3(0, 1, 0);
-    cylinder.quaternion.setFromUnitVectors(axis, direction.clone().normalize());
+  //   const axis = new THREE.Vector3(0, 1, 0);
+  //   cylinder.quaternion.setFromUnitVectors(axis, direction.clone().normalize());
 
-    return cylinder;
-  }
+  //   return cylinder;
+  // }
 
-  function makeSizeLine(size) {
-    const scale = selectedObject.scale;
+  // function makeSizeLine(size) {
+  //   const scale = selectedObject.scale;
 
-    const trueSize = new THREE.Vector3(
-      size.x / scale.x,
-      size.y / scale.y,
-      size.z / scale.z
-    );
+  //   const trueSize = new THREE.Vector3(
+  //     size.x / scale.x,
+  //     size.y / scale.y,
+  //     size.z / scale.z
+  //   );
 
-    const scaleFactor = 0.27;
-    const halfX = (trueSize.x / 2) * scaleFactor;
-    const halfY = (trueSize.y / 2) * scaleFactor;
-    const halfZ = (trueSize.z / 2) * scaleFactor;
+  //   const scaleFactor = 0.27;
+  //   const halfX = (trueSize.x / 2) * scaleFactor;
+  //   const halfY = (trueSize.y / 2) * scaleFactor;
+  //   const halfZ = (trueSize.z / 2) * scaleFactor;
 
-    const xLine = createThickLine(
-      new THREE.Vector3(-halfX, -halfY, halfZ),
-      new THREE.Vector3(halfX, -halfY, halfZ)
-    );
+  //   const xLine = createThickLine(
+  //     new THREE.Vector3(-halfX, -halfY, halfZ),
+  //     new THREE.Vector3(halfX, -halfY, halfZ)
+  //   );
 
-    const zLine = createThickLine(
-      new THREE.Vector3(halfX, -halfY, halfZ),
-      new THREE.Vector3(halfX, -halfY, -halfZ)
-    );
+  //   const zLine = createThickLine(
+  //     new THREE.Vector3(halfX, -halfY, halfZ),
+  //     new THREE.Vector3(halfX, -halfY, -halfZ)
+  //   );
 
-    const yLine = createThickLine(
-      new THREE.Vector3(-halfX, -halfY, halfZ),
-      new THREE.Vector3(-halfX, halfY * 7, halfZ)
-    );
+  //   const yLine = createThickLine(
+  //     new THREE.Vector3(-halfX, -halfY, halfZ),
+  //     new THREE.Vector3(-halfX, halfY * 7, halfZ)
+  //   );
 
-    lineGroup = new THREE.Group();
-    lineGroup.add(xLine, zLine, yLine);
-    selectedObject.add(lineGroup);
-  }
+  //   lineGroup = new THREE.Group();
+  //   lineGroup.add(xLine, zLine, yLine);
+  //   selectedObject.add(lineGroup);
+  // }
 
   function deselectObject() {
     if (selectedObject) {
       selectedObject.remove(selectionRing);
-      if (lineGroup) {
-        selectedObject.remove(lineGroup);
-        lineGroup = null;
-      }
+      // if (lineGroup) {
+      //   selectedObject.remove(lineGroup);
+      //   lineGroup = null;
+      // }
     }
     
     // 크기 정보 카드 제거
